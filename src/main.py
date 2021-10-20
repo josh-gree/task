@@ -6,12 +6,18 @@ import pprint
 from typing import List
 from math import ceil
 
+from pandas import DataFrame
+
 from functools import reduce
 from operator import add
+from collections import Counter
 
 
 API_ROOT = 'https://swapi.dev/api/'
 API_PLANETS = API_ROOT + 'planets'
+API_PEOPLE = API_ROOT + 'people'
+
+RESULTS_PATH = '/app/results'
 
 PAGINATION_QUERY = '?page={page}'
 
@@ -41,7 +47,35 @@ def generate_all_page_urls(endpoint: str) -> List[str]:
     return pages
 
 
-async def fetch(url: str, session: aiohttp.ClientSession) -> List[dict]:
+def planet_processing(response: dict):
+
+    results = response['results']
+
+    return [
+        {
+            'name': res['name'],
+            'count': len(res['residents'])
+        }
+
+        for res in results
+    ] 
+
+def people_processing(response: dict):
+
+    results = response['results']
+
+    home_worlds = [res['homeworld'] for res in results]
+
+    c = Counter(home_worlds)
+
+    return c
+
+def planet_name_processing(response: dict):
+
+    return response['name']
+
+
+async def fetch(url: str, session: aiohttp.ClientSession, processing_func) -> List[dict]:
     """Fetch json data from URL extract results key and for each 
     record return name of planet and count of residents
 
@@ -53,20 +87,11 @@ async def fetch(url: str, session: aiohttp.ClientSession) -> List[dict]:
         List[dict]: [{'name','count'},...]
     """
     async with session.get(url) as response:
-        data = await response.json()
+        response = await response.json()
 
-        results = data['results']
+        return processing_func(response)
 
-        return [
-            {
-                'name': res['name'],
-                'count': len(res['residents'])
-            }
-
-            for res in results
-        ] 
-
-async def fetch_all(urls: List[str]) -> List[dict]:
+async def fetch_all(urls: List[str], processing_func) -> List[dict]:
     """Run multiple fetches asynchronously for each url in urls
 
     Args:
@@ -78,7 +103,7 @@ async def fetch_all(urls: List[str]) -> List[dict]:
     tasks = []
     async with aiohttp.ClientSession() as session:
         for url in urls:
-            task = asyncio.create_task(fetch(url, session))
+            task = asyncio.create_task(fetch(url, session, processing_func))
             tasks.append(task)
 
         resps = asyncio.gather(*tasks)
@@ -91,6 +116,19 @@ if __name__ == '__main__':
 
 
     planet_pages = generate_all_page_urls(API_PLANETS)
+    people_pages = generate_all_page_urls(API_PEOPLE)
 
-    resps = asyncio.run(fetch_all(planet_pages))
-    pprint.pprint(reduce(add,resps))
+    resps_planets = asyncio.run(fetch_all(planet_pages, planet_processing))
+    result = reduce(add,resps_planets)
+
+    df = DataFrame.from_dict(result)
+    df.to_csv(RESULTS_PATH + '/planets.csv',index=False)
+
+    resps_people = asyncio.run(fetch_all(people_pages, people_processing))
+    result = reduce(add,resps_people)
+
+    resps_planet_names = asyncio.run(fetch_all(list(result.keys()), planet_name_processing))
+    result = dict(zip(resps_planet_names,list(result.values())))
+
+    df = DataFrame.from_dict(result, orient='index')
+    df.to_csv(RESULTS_PATH + '/people.csv')

@@ -7,6 +7,8 @@ authors = ["josh-gree <joshua.greenhalgh@heyjobs.de>"]
 [tool.poetry.dependencies]
 python = "^3.8"
 aiohttp = "^3.7.4"
+requests = "^2.26.0"
+pandas = "^1.3.4"
 
 [tool.poetry.dev-dependencies]
 jupyterlab = "^3.2.0"
